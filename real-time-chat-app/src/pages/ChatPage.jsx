@@ -224,10 +224,7 @@ const ChatPage = () => {
                   <div className="uploaded-image-preview">
                     {uploadedImage.type === "image" ? (
                       <div>
-                        <img
-                          src={uploadedImage.url}
-                          alt="Uploaded Preview"
-                        />
+                        <img src={uploadedImage.url} alt="Uploaded Preview" />
                         <button onClick={() => setUploadedImage(null)}>
                           Remove
                         </button>
@@ -254,14 +251,14 @@ const ChatPage = () => {
                     <span class="material-symbols-outlined">attachment</span>
                   </label>
 
-                  <input
-                    type="text"
+                  <textarea
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
-                    onKeyPress={handleKeyPress}
+                    
                     placeholder="Type your message..."
                     required
-                  />
+                    rows="1"
+                  ></textarea>
 
                   <button onClick={handleSendMessage}>
                     <svg
