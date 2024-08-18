@@ -31,10 +31,10 @@ const UserList = () => {
           ...doc.data(),
         }))
         .filter((user) => user.uid !== currentUser?.uid);
-
+  
       setUsers(usersData);
     });
-
+  
     const unsubscribeMessages = onSnapshot(
       collection(db, "chats"),
       (snapshot) => {
@@ -42,30 +42,28 @@ const UserList = () => {
         snapshot.docs.forEach((chatDoc) => {
           const chatId = chatDoc.id;
           const chatData = chatDoc.data();
-
-          // Check if the current user is a participant in the chat
+  
           if (chatData.participants.includes(currentUser.uid)) {
             const messagesQuery = query(
               collection(db, `chats/${chatId}/messages`),
               orderBy("timestamp", "desc"),
               limit(1) // Limit to only the most recent message
             );
-
+  
             onSnapshot(messagesQuery, (messagesSnapshot) => {
               const chatMessages = messagesSnapshot.docs.map((doc) => ({
                 ...doc.data(),
                 chatId,
               }));
-
+  
               chatData.participants.forEach((participantId) => {
-                // Only store messages for the current user
                 if (participantId === currentUser.uid) {
                   messagesData[
                     chatData.participants.find((uid) => uid !== currentUser.uid)
                   ] = chatMessages;
                 }
               });
-
+  
               setMessages((prevMessages) => ({
                 ...prevMessages,
                 ...messagesData,
@@ -75,13 +73,13 @@ const UserList = () => {
         });
       }
     );
-
+  
     return () => {
       unsubscribeUsers();
       unsubscribeMessages();
     };
   }, [currentUser?.uid]);
-
+  
   if (!currentUser) {
     return <div>Loading...</div>;
   }

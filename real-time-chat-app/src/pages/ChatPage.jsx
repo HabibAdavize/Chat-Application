@@ -7,7 +7,8 @@ import {
   onSnapshot,
   doc,
   addDoc,
-  getDoc,
+  updateDoc,
+  deleteDoc,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../hooks/useAuth";
@@ -17,18 +18,20 @@ import Preloader from "../components/Preloader";
 import { useParams } from "react-router-dom";
 
 const ChatPage = () => {
-  const { chatId } = useParams(); // Get chatId from URL
+  const { chatId } = useParams();
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
-  const [chatUser, setChatUser] = useState(null); // State to store the user data
+  const [chatUser, setChatUser] = useState(null);
   const { currentUser } = useAuth();
-  const [loadingMessages, setLoadingMessages] = useState(false); // State to handle loading messages
-  const [conversationStartDate, setConversationStartDate] = useState(null); // State to store conversation start date
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [conversationStartDate, setConversationStartDate] = useState(null);
   const [isDarkMode, setIsDarkMode] = useState(
     localStorage.getItem("theme") === "dark"
   );
 
-  const [uploadedImage, setUploadedImage] = useState(null); // State to store the uploaded image file
+  const [uploadedImage, setUploadedImage] = useState(null);
+  const [replyTo, setReplyTo] = useState(null); // State to handle replying to a message
+  const [editMessageId, setEditMessageId] = useState(null); // State to handle editing a message
 
   useEffect(() => {
     document.body.dataset.theme = isDarkMode ? "dark" : "light";
@@ -59,31 +62,16 @@ const ChatPage = () => {
             if (messagesData.length > 0) {
               setConversationStartDate(
                 messagesData[messagesData.length - 1].timestamp
-              ); // Get the timestamp of the first message
+              );
             }
 
             setLoadingMessages(false);
           });
 
-          const fetchChatUser = async () => {
-            const chatDoc = await getDoc(doc(db, "chats", chatId));
-            const participants = chatDoc.data()?.participants || [];
-            const otherUserId = participants.find(
-              (id) => id !== currentUser.uid
-            );
-
-            if (otherUserId) {
-              const userDoc = await getDoc(doc(db, "users", otherUserId));
-              setChatUser(userDoc.data());
-            }
-          };
-
-          await fetchChatUser();
-
           return () => unsubscribe();
         } catch (error) {
           console.error("Error fetching messages:", error);
-          setLoadingMessages(false); // Ensure loading is turned off on error
+          setLoadingMessages(false);
         }
       }
     };
@@ -101,18 +89,37 @@ const ChatPage = () => {
   const handleSendMessage = async () => {
     if (newMessage.trim() || uploadedImage) {
       try {
-        await addDoc(collection(db, `chats/${chatId}/messages`), {
-          senderId: currentUser.uid,
-          senderName: currentUser.displayName,
-          senderProfilePicture: currentUser.photoURL,
-          content: newMessage,
-          imageUrl: uploadedImage?.type === "image" ? uploadedImage.url : null,
-          fileUrl: uploadedImage?.type === "file" ? uploadedImage.url : null,
-          fileName: uploadedImage?.name || null,
-          timestamp: serverTimestamp(),
-        });
+        if (editMessageId) {
+          // Handle editing an existing message
+          await updateDoc(doc(db, `chats/${chatId}/messages`, editMessageId), {
+            content: newMessage,
+            imageUrl:
+              uploadedImage?.type === "image" ? uploadedImage.url : null,
+            fileUrl: uploadedImage?.type === "file" ? uploadedImage.url : null,
+            fileName: uploadedImage?.name || null,
+            edited: true,
+          });
+          setEditMessageId(null);
+        } else {
+          // Handle sending a new message
+          await addDoc(collection(db, `chats/${chatId}/messages`), {
+            senderId: currentUser.uid,
+            senderName: currentUser.displayName,
+            senderProfilePicture: currentUser.photoURL,
+            content: newMessage,
+            imageUrl:
+              uploadedImage?.type === "image" ? uploadedImage.url : null,
+            fileUrl: uploadedImage?.type === "file" ? uploadedImage.url : null,
+            fileName: uploadedImage?.name || null,
+            replyTo: replyTo ? replyTo.id : null, // Include the ID of the message being replied to
+            replyToContent: replyTo ? replyTo.content : null, // Include the content of the message being replied to
+            timestamp: serverTimestamp(),
+          });
+        }
+
         setNewMessage("");
         setUploadedImage(null);
+        setReplyTo(null); // Clear the replyTo state after sending a message
       } catch (error) {
         console.error("Error sending message:", error);
       }
@@ -121,6 +128,7 @@ const ChatPage = () => {
 
   const handleKeyPress = (event) => {
     if (event.key === "Enter") {
+      event.preventDefault();
       handleSendMessage();
     }
   };
@@ -131,22 +139,38 @@ const ChatPage = () => {
       const reader = new FileReader();
       reader.onload = () => {
         if (file.type.startsWith("image/")) {
-          // Handle image files
           setUploadedImage({
             type: "image",
-            url: reader.result, // Set as base64 data URL
+            url: reader.result,
             name: file.name,
           });
         } else {
-          // Handle other files
           setUploadedImage({
             type: "file",
-            url: URL.createObjectURL(file), // Create an object URL
+            url: URL.createObjectURL(file),
             name: file.name,
           });
         }
       };
       reader.readAsDataURL(file);
+    }
+  };
+
+  const handleReply = (message) => {
+    setReplyTo(message);
+    setNewMessage(`@${message.senderName}: `); // Pre-fill the input with the sender's name
+  };
+
+  const handleEdit = (message) => {
+    setNewMessage(message.content);
+    setEditMessageId(message.id);
+  };
+
+  const handleDelete = async (messageId) => {
+    try {
+      await deleteDoc(doc(db, `chats/${chatId}/messages`, messageId));
+    } catch (error) {
+      console.error("Error deleting message:", error);
     }
   };
 
@@ -186,7 +210,28 @@ const ChatPage = () => {
                             message.timestamp?.toDate()
                           ).toLocaleString()}
                         </span>
+                        {message.senderId === currentUser.uid && (
+                          <div className="message-actions">
+                            <span
+                              onClick={() => handleEdit(message)}
+                              class="material-symbols-outlined"
+                            >
+                              edit_note
+                            </span>
+                            <span
+                              onClick={() => handleDelete(message.id)}
+                              class="material-symbols-outlined"
+                            >
+                              delete
+                            </span>
+                          </div>
+                        )}
                       </div>
+                      {message.replyTo && (
+                        <div className="reply-message">
+                          Replying to: {message.replyToContent}
+                        </div>
+                      )}
                       <div className="message-content">
                         {message.imageUrl && (
                           <div className="message-image">
@@ -215,11 +260,29 @@ const ChatPage = () => {
                         )}
                         {message.content}
                       </div>
+
+                      <span
+                        onClick={() => handleReply(message)}
+                        class="material-symbols-outlined"
+                      >
+                        reply
+                      </span>
                     </li>
                   ))}
                 </ul>
 
-                {/* Display the uploaded image */}
+                {replyTo && (
+                  <div className="replying-to">
+                    Replying to: {replyTo.content}
+                    <span
+                      onClick={() => setReplyTo(null)}
+                      class="material-symbols-outlined"
+                    >
+                      close
+                    </span>
+                  </div>
+                )}
+
                 {uploadedImage && (
                   <div className="uploaded-image-preview">
                     {uploadedImage.type === "image" ? (
@@ -248,18 +311,15 @@ const ChatPage = () => {
                     onChange={handleImageUpload}
                   />
                   <label htmlFor="file-upload" className="file-upload-icon">
-                    <span class="material-symbols-outlined">attachment</span>
+                    <span className="material-symbols-outlined">
+                      attachment
+                    </span>
                   </label>
-
                   <textarea
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
-                    
-                    placeholder="Type your message..."
-                    required
-                    rows="1"
-                  ></textarea>
-
+                    placeholder="Type a message..."
+                  />
                   <button onClick={handleSendMessage}>
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
