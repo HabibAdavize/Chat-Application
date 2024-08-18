@@ -26,7 +26,9 @@ const ChatPage = () => {
   const [conversationStartDate, setConversationStartDate] = useState(null); // State to store conversation start date
   const [isDarkMode, setIsDarkMode] = useState(
     localStorage.getItem("theme") === "dark"
-  ); // State for theme
+  );
+
+  const [uploadedImage, setUploadedImage] = useState(null); // State to store the uploaded image file
 
   useEffect(() => {
     document.body.dataset.theme = isDarkMode ? "dark" : "light";
@@ -40,7 +42,7 @@ const ChatPage = () => {
   useEffect(() => {
     const fetchMessages = async () => {
       if (currentUser && chatId) {
-        setLoadingMessages(true); // Set loading to true before fetching data
+        setLoadingMessages(true);
 
         try {
           const messagesQuery = query(
@@ -52,7 +54,7 @@ const ChatPage = () => {
               id: doc.id,
               ...doc.data(),
             }));
-            setMessages(messagesData); // Reverse the order to show newer messages first
+            setMessages(messagesData);
 
             if (messagesData.length > 0) {
               setConversationStartDate(
@@ -60,10 +62,9 @@ const ChatPage = () => {
               ); // Get the timestamp of the first message
             }
 
-            setLoadingMessages(false); // Set loading to false when data is fetched
+            setLoadingMessages(false);
           });
 
-          // Fetch the other user's data
           const fetchChatUser = async () => {
             const chatDoc = await getDoc(doc(db, "chats", chatId));
             const participants = chatDoc.data()?.participants || [];
@@ -98,16 +99,20 @@ const ChatPage = () => {
   }, [messages]);
 
   const handleSendMessage = async () => {
-    if (newMessage.trim()) {
+    if (newMessage.trim() || uploadedImage) {
       try {
         await addDoc(collection(db, `chats/${chatId}/messages`), {
           senderId: currentUser.uid,
-          senderName: currentUser.displayName, // Assuming displayName is available
-          senderProfilePicture: currentUser.photoURL, // Assuming photoURL is available
+          senderName: currentUser.displayName,
+          senderProfilePicture: currentUser.photoURL,
           content: newMessage,
+          imageUrl: uploadedImage?.type === "image" ? uploadedImage.url : null,
+          fileUrl: uploadedImage?.type === "file" ? uploadedImage.url : null,
+          fileName: uploadedImage?.name || null,
           timestamp: serverTimestamp(),
         });
         setNewMessage("");
+        setUploadedImage(null);
       } catch (error) {
         console.error("Error sending message:", error);
       }
@@ -117,6 +122,31 @@ const ChatPage = () => {
   const handleKeyPress = (event) => {
     if (event.key === "Enter") {
       handleSendMessage();
+    }
+  };
+
+  const handleImageUpload = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (file.type.startsWith("image/")) {
+          // Handle image files
+          setUploadedImage({
+            type: "image",
+            url: reader.result, // Set as base64 data URL
+            name: file.name,
+          });
+        } else {
+          // Handle other files
+          setUploadedImage({
+            type: "file",
+            url: URL.createObjectURL(file), // Create an object URL
+            name: file.name,
+          });
+        }
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -157,11 +187,73 @@ const ChatPage = () => {
                           ).toLocaleString()}
                         </span>
                       </div>
-                      <div className="message-content">{message.content}</div>
+                      <div className="message-content">
+                        {message.imageUrl && (
+                          <div className="message-image">
+                            <a
+                              href={message.imageUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <img
+                                src={message.imageUrl}
+                                alt="Message Attachment"
+                              />
+                            </a>
+                          </div>
+                        )}
+                        {message.fileUrl && (
+                          <div className="message-file">
+                            <a
+                              href={message.fileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {message.fileName}
+                            </a>
+                          </div>
+                        )}
+                        {message.content}
+                      </div>
                     </li>
                   ))}
                 </ul>
+
+                {/* Display the uploaded image */}
+                {uploadedImage && (
+                  <div className="uploaded-image-preview">
+                    {uploadedImage.type === "image" ? (
+                      <div>
+                        <img
+                          src={uploadedImage.url}
+                          alt="Uploaded Preview"
+                        />
+                        <button onClick={() => setUploadedImage(null)}>
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <span>{uploadedImage.name}</span>
+                        <button onClick={() => setUploadedImage(null)}>
+                          Remove
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="message-input">
+                  <input
+                    type="file"
+                    id="file-upload"
+                    style={{ display: "none" }}
+                    onChange={handleImageUpload}
+                  />
+                  <label htmlFor="file-upload" className="file-upload-icon">
+                    <span class="material-symbols-outlined">attachment</span>
+                  </label>
+
                   <input
                     type="text"
                     value={newMessage}
@@ -170,6 +262,7 @@ const ChatPage = () => {
                     placeholder="Type your message..."
                     required
                   />
+
                   <button onClick={handleSendMessage}>
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
@@ -195,7 +288,13 @@ const ChatPage = () => {
           ) : (
             <div className="welcome-message">
               <h2>Welcome, {currentUser?.displayName || "User"}!</h2>
-              <p>Please click on the toogle left/above<span class="material-symbols-outlined">arrow_drop_down_circle</span> select a chat to start messaging.</p>
+              <p>
+                Please click on the toggle left/above
+                <span className="material-symbols-outlined">
+                  arrow_drop_down_circle
+                </span>
+                to select a chat to start messaging.
+              </p>
             </div>
           )}
         </div>
