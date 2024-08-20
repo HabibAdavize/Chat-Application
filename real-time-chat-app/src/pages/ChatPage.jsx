@@ -158,7 +158,7 @@ const ChatPage = () => {
 
   const handleReply = (message) => {
     setReplyTo(message);
-    setNewMessage(`@${message.senderName}: `); // Pre-fill the input with the sender's name
+    setNewMessage(` `);
   };
 
   const handleEdit = (message) => {
